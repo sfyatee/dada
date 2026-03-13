@@ -26,3 +26,25 @@ const (
     tokenConst
     tokenNumber
 )
+
+type token struct {
+    typ  tokenType
+    text string
+}
+
+func (t *token) String() string {
+    if t == nil {
+        return "<nil>"
+    }
+    if t.text != "" {
+        return t.text
+    }
+    return t.typ.String()
+}
+
+func (t *token) buildString(b *strings.Builder) {
+    if t == nil {
+        return
+    }
+    b.WriteString(t.String())
+}
