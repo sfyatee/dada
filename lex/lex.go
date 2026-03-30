@@ -52,6 +52,21 @@ func (l *lexer) next() *token {
 		return &token{typ: tokenDot, text: "."}
 	case '\'':
 		return &token{typ: tokenQuote, text: "'"}
+	case '_':
+		return &token{typ: tokenUnderscore, text: "_"}
+	case '=':
+		next, ok := l.peekRune()
+		if ok {
+			switch next {
+			case '=':
+				_, _ = l.readRune()
+				return &token{typ: tokenEqualEqual, text: "=="}
+			case '>':
+				_, _ = l.readRune()
+				return &token{typ: tokenArrow, text: "=>"}
+			}
+		}
+		return l.lexAtomOrConst(r)
 	}
 
 	if isDigit(r) || (r == '-' && l.peekDigit()) {
@@ -170,14 +185,22 @@ func (l *lexer) lexAtomOrConst(first rune) *token {
 }
 
 func (l *lexer) peekDigit() bool {
+	r, ok := l.peekRune()
+	if !ok {
+		return false
+	}
+	return isDigit(r)
+}
+
+func (l *lexer) peekRune() (rune, bool) {
 	r, err := l.readRune()
 	if err != nil {
-		return false
+		return 0, false
 	}
 	if err := l.r.UnreadRune(); err != nil {
 		panic(Error(err.Error()))
 	}
-	return isDigit(r)
+	return r, true
 }
 
 func (l *lexer) readRune() (rune, error) {
@@ -190,11 +213,11 @@ func isDigit(r rune) bool {
 }
 
 func isAtomStart(r rune) bool {
-	if unicode.IsLetter(r) || r == '_' {
+	if unicode.IsLetter(r) {
 		return true
 	}
 	switch r {
-	case '+', '-', '*', '/', '<', '>', '=', '?', '!':
+	case '+', '-', '*', '/', '<', '=':
 		return true
 	default:
 		return false
@@ -207,7 +230,10 @@ func isAtomPart(r rune) bool {
 
 func isReservedConst(s string) bool {
 	switch s {
-	case "true", "false", "unit", "nil":
+	case "true", "false", "unit",
+		"Int", "Unit", "Boolean",
+		"alg", "callhof", "call", "block", "cons", "match",
+		"val", "var", "case", "algdef", "def":
 		return true
 	default:
 		return false

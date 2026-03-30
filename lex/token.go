@@ -22,6 +22,9 @@ const (
 	tokenRpar
 	tokenDot
 	tokenQuote
+	tokenEqualEqual
+	tokenArrow
+	tokenUnderscore
 	tokenAtom
 	tokenConst
 	tokenNumber
@@ -41,6 +44,12 @@ func (tt tokenType) String() string {
 		return "."
 	case tokenQuote:
 		return "'"
+	case tokenEqualEqual:
+		return "=="
+	case tokenArrow:
+		return "=>"
+	case tokenUnderscore:
+		return "_"
 	case tokenAtom:
 		return "atom"
 	case tokenConst:
