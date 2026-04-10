@@ -30,6 +30,23 @@ const (
 	tokenNumber
 )
 
+type TokenType = tokenType
+
+const (
+	TokenError = tokenError
+	TokenEOF = tokenEOF
+	TokenLpar = tokenLpar
+	TokenRpar = tokenRpar
+	TokenDot = tokenDot
+	TokenQuote = tokenQuote
+	TokenEqualEqual = tokenEqualEqual
+	TokenArrow = tokenArrow
+	TokenUnderscore = tokenUnderscore
+	TokenAtom = tokenAtom
+	TokenConst = tokenConst
+	TokenNumber = tokenNumber
+)
+
 func (tt tokenType) String() string {
 	switch tt {
 	case tokenError:
@@ -66,6 +83,8 @@ type token struct {
 	text string
 }
 
+type Token = token
+
 func (t *token) String() string {
 	if t == nil {
 		return "<nil>"
@@ -81,4 +100,18 @@ func (t *token) buildString(b *strings.Builder) {
 		return
 	}
 	b.WriteString(t.String())
+}
+
+func (t *token) Type() TokenType {
+	if t == nil {
+		return TokenError
+	}
+	return t.typ
+}
+
+func (t *token) Text() string {
+	if t == nil {
+		return ""
+	}
+	return t.text
 }

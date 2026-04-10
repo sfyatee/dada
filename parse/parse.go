@@ -5,9 +5,9 @@
 package parse
 
 import (
+	"dada/lex"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 )
 
@@ -20,33 +20,40 @@ func Config(alwaysPrintSExprs bool) {
 	printSExpr = alwaysPrintSExprs
 }
 
-// Expr represents an arbitrary expression.
-type Expr struct {
-	// An Expr is either an atom, with atom set, or a list, with car and cdr set.
-	// Car and cdr can be nil (empty) even if atom is nil.
-	car  *Expr
-	atom *token
-	cdr  *Expr
+// AST represents an arbitrary parsed S-expression tree.
+// Exactly one of Atom or List should be populated.
+type AST struct {
+	Atom *lex.Token
+	List []*AST
+	Tail *AST
 }
 
-// SExprString returns the expression as a formatted S-Expression.
-func (e *Expr) SExprString() string {
+// Expr is kept as an alias for compatibility with older parser code.
+type Expr = AST
+
+// SExprString returns the expression as a formatted dotted S-expression.
+func (e *AST) SExprString() string {
 	if e == nil {
 		return "nil"
 	}
-	if e.atom != nil {
-		return e.atom.String()
+	if e.Atom != nil {
+		return e.Atom.String()
 	}
-	str := "("
-	str += e.car.SExprString()
-	str += " . "
-	str += e.cdr.SExprString()
-	str += ")"
-	return str
+	if len(e.List) == 0 && e.Tail == nil {
+		return "nil"
+	}
+	tail := "nil"
+	if e.Tail != nil {
+		tail = e.Tail.SExprString()
+	}
+	for i := len(e.List) - 1; i >= 0; i-- {
+		tail = fmt.Sprintf("(%s . %s)", e.List[i].SExprString(), tail)
+	}
+	return tail
 }
 
 // String returns the expression as a formatted list (unless printSExpr is set).
-func (e *Expr) String() string {
+func (e *AST) String() string {
 	if printSExpr {
 		return e.SExprString()
 	}
@@ -59,158 +66,172 @@ func (e *Expr) String() string {
 }
 
 // buildString is the internals of the String method. simplifyQuote
-// specifies whether (quote expr) should be printed as 'expr.
-func (e *Expr) buildString(b *strings.Builder, simplifyQuote bool) {
+// specifies whether (' expr) should be printed as 'expr.
+func (e *AST) buildString(b *strings.Builder, simplifyQuote bool) {
 	if e == nil {
 		b.WriteString("nil")
 		return
 	}
-	if e.atom != nil {
-		e.atom.buildString(b)
+	if e.Atom != nil {
+		b.WriteString(e.Atom.String())
 		return
 	}
-	// Simplify (quote a) to 'a.
-	if simplifyQuote && Car(e).getAtom() == tokQuote {
+	if len(e.List) == 0 && e.Tail == nil {
+		b.WriteString("()")
+		return
+	}
+	if simplifyQuote && isQuoteList(e) {
 		b.WriteByte('\'')
-		Car(Cdr(e)).buildString(b, simplifyQuote)
+		e.List[1].buildString(b, simplifyQuote)
 		return
 	}
 	b.WriteByte('(')
-	for {
-		car, cdr := e.car, e.cdr
-		car.buildString(b, simplifyQuote)
-		if cdr == nil {
-			break
+	for i, elem := range e.List {
+		if i > 0 {
+			b.WriteByte(' ')
 		}
-		if cdr.atom != nil {
-			if cdr.atom.text == "nil" {
-				break
-			}
+		elem.buildString(b, simplifyQuote)
+	}
+	if e.Tail != nil {
+		if len(e.List) > 0 {
 			b.WriteString(" . ")
-			cdr.buildString(b, simplifyQuote)
-			break
 		}
-		b.WriteByte(' ')
-		e = cdr
+		e.Tail.buildString(b, simplifyQuote)
 	}
 	b.WriteByte(')')
 }
 
-// Parser is the parser for lists.
+func isQuoteList(e *AST) bool {
+	return e != nil &&
+		e.Atom == nil &&
+		e.Tail == nil &&
+		len(e.List) == 2 &&
+		e.List[0] != nil &&
+		e.List[0].Atom != nil &&
+		e.List[0].Atom.Type() == lex.TokenQuote
+}
+
+func atomExpr(tok *lex.Token) *AST {
+	return &AST{Atom: tok}
+}
+
+func listExpr(list []*AST, tail *AST) *AST {
+	return &AST{List: list, Tail: tail}
+}
+
+func isAtomToken(typ lex.TokenType) bool {
+	switch typ {
+	case lex.TokenAtom, lex.TokenConst, lex.TokenNumber, lex.TokenEqualEqual, lex.TokenArrow, lex.TokenUnderscore:
+		return true
+	default:
+		return false
+	}
+}
+
+// Parser is the parser for S-expression syntax.
 type Parser struct {
-	lex     *lexer
-	peekTok *token
+	lex     *lex.Lexer
+	peekTok *lex.Token
 }
 
 // NewParser returns a new parser that will read from the RuneReader.
-// Parse errors cause panics of type Error that the caller must handle.
+// Parse errors cause panics of type lex.Error that the caller must handle.
 func NewParser(r io.RuneReader) *Parser {
 	return &Parser{
-		lex:     newLexer(r),
+		lex:     lex.NewLexer(r),
 		peekTok: nil,
 	}
 }
 
 // SkipSpace skips leading spaces, returning the rune that follows.
 func (p *Parser) SkipSpace() rune {
-	return p.lex.skipSpace()
+	return p.lex.SkipSpace()
 }
 
 // SkipToNewline advances the input past the next newline.
 func (p *Parser) SkipToEndOfLine() {
-	p.lex.skipToNewline()
+	p.lex.SkipToNewline()
 }
 
 func errorf(format string, args ...interface{}) {
-	panic(Error(fmt.Sprintf(format, args...)))
+	panic(lex.Error(fmt.Sprintf(format, args...)))
 }
 
-func (p *Parser) next() *token {
+func (p *Parser) next() *lex.Token {
 	if tok := p.peekTok; tok != nil {
 		p.peekTok = nil
 		return tok
 	}
-	return p.lex.next()
+	return p.lex.Next()
 }
 
-func (p *Parser) back(tok *token) {
+func (p *Parser) back(tok *lex.Token) {
 	p.peekTok = tok
 }
 
-// sExpr parses an S-Expression.
-// SExpr:
-//	Atom
-//	Lpar SExpr Dot SExpr Rpar
-func (p *Parser) SExpr() *Expr {
-	tok := p.next()
-	switch tok.typ {
-	case tokenEOF:
-		return nil
-	case tokenQuote:
-		return p.quote()
-	case tokenAtom, tokenConst, tokenNumber:
-		return atomExpr(tok)
-	case tokenLpar:
-		car := p.SExpr()
-		dot := p.next()
-		if dot.typ != tokenDot {
-			log.Fatal("expected dot, found ", dot)
-		}
-		cdr := p.SExpr()
-		rpar := p.next()
-		if rpar.typ != tokenRpar {
-			log.Fatal("expected rPar, found ", rpar)
-		}
-		return Cons(car, cdr)
-	}
-	errorf("bad token in SExpr: %q", tok)
-	panic("not reached")
+// Parse reads a single AST node using the list-oriented grammar.
+func (p *Parser) Parse() *AST {
+	return p.List()
 }
 
-// quote parses a quoted expression. The leading quote has been consumed.
-func (p *Parser) quote() *Expr {
-	return Cons(atomExpr(tokQuote), Cons(p.List(), nil))
+// SExpr parses an S-Expression, returning nil only at end of input.
+func (p *Parser) SExpr() *AST {
+	return p.parseExpr(true)
 }
 
 // List parses a list expression.
-func (p *Parser) List() *Expr {
+func (p *Parser) List() *AST {
+	return p.parseExpr(false)
+}
+
+func (p *Parser) parseExpr(allowEOF bool) *AST {
 	tok := p.next()
-	switch tok.typ {
-	case tokenEOF:
-		panic(EOF("eof"))
-	case tokenQuote:
-		return p.quote()
-	case tokenAtom, tokenConst, tokenNumber:
-		return atomExpr(tok)
-	case tokenLpar:
-		expr := p.lparList()
-		tok = p.next()
-		if tok.typ == tokenRpar {
-			return expr
+	switch tok.Type() {
+	case lex.TokenEOF:
+		if allowEOF {
+			return nil
+		}
+		panic(lex.EOF("eof"))
+	case lex.TokenQuote:
+		return p.quote(tok)
+	case lex.TokenLpar:
+		return p.parseList()
+	default:
+		if isAtomToken(tok.Type()) {
+			return atomExpr(tok)
 		}
 	}
-	errorf("bad token in list: %q", tok)
+	errorf("bad token in expression: %q", tok)
 	panic("not reached")
 }
 
-// lparList parses the innards of a list, up to the closing paren.
-// The opening paren has been consumed.
-func (p *Parser) lparList() *Expr {
-	tok := p.next()
-	switch tok.typ {
-	case tokenQuote:
-		return Cons(p.quote(), p.lparList())
-	case tokenAtom, tokenConst, tokenNumber:
-		return Cons(atomExpr(tok), p.lparList())
-	case tokenDot:
-		return p.List()
-	case tokenLpar:
-		p.back(tok)
-		return Cons(p.List(), p.lparList())
-	case tokenRpar:
-		p.back(tok)
-		return nil
+func (p *Parser) parseList() *AST {
+	var elems []*AST
+	for {
+		tok := p.next()
+		switch tok.Type() {
+		case lex.TokenEOF:
+			panic(lex.EOF("eof"))
+		case lex.TokenRpar:
+			return listExpr(elems, nil)
+		case lex.TokenDot:
+			if len(elems) == 0 {
+				errorf("bad token parsing list: %q", tok)
+			}
+			tail := p.parseExpr(false)
+			rpar := p.next()
+			if rpar.Type() != lex.TokenRpar {
+				errorf("expected ')', found %q", rpar)
+			}
+			return listExpr(elems, tail)
+		default:
+			p.back(tok)
+			elems = append(elems, p.parseExpr(false))
+		}
 	}
-	errorf("bad token parsing list: %q", tok)
-	panic("not reached")
+}
+
+// quote parses a quoted expression. The leading quote has been consumed.
+func (p *Parser) quote(tok *lex.Token) *AST {
+	return listExpr([]*AST{atomExpr(tok), p.parseExpr(false)}, nil)
 }
