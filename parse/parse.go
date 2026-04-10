@@ -40,7 +40,7 @@ func (e *AST) SExprString() string {
 		return e.Atom.String()
 	}
 	if len(e.List) == 0 && e.Tail == nil {
-		return "nil"
+		return "()"
 	}
 	tail := "nil"
 	if e.Tail != nil {
@@ -65,8 +65,7 @@ func (e *AST) String() string {
 	return b.String()
 }
 
-// buildString is the internals of the String method. simplifyQuote
-// specifies whether (' expr) should be printed as 'expr.
+// buildString is the internal helper for String
 func (e *AST) buildString(b *strings.Builder) {
 	if e == nil {
 		b.WriteString("nil")
@@ -154,9 +153,9 @@ func (p *Parser) back(tok *lex.Token) {
 	p.peekTok = tok
 }
 
-// Parse reads a single AST node using the list-oriented grammar.
+// Parse reads a single AST node using the s-expression grammar.
 func (p *Parser) Parse() *AST {
-	return p.List()
+	return p.SExpr()
 }
 
 // SExpr parses an S-Expression, returning nil only at end of input.
