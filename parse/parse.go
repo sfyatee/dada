@@ -96,16 +96,6 @@ func (e *AST) buildString(b *strings.Builder) {
 	b.WriteByte(')')
 }
 
-func isQuoteList(e *AST) bool {
-	return e != nil &&
-		e.Atom == nil &&
-		e.Tail == nil &&
-		len(e.List) == 2 &&
-		e.List[0] != nil &&
-		e.List[0].Atom != nil &&
-		e.List[0].Atom.Type() == lex.TokenQuote
-}
-
 func atomExpr(tok *lex.Token) *AST {
 	return &AST{Atom: tok}
 }
@@ -187,8 +177,6 @@ func (p *Parser) parseExpr(allowEOF bool) *AST {
 			return nil
 		}
 		panic(lex.EOF("eof"))
-	case lex.TokenQuote:
-		return p.quote(tok)
 	case lex.TokenLpar:
 		return p.parseList()
 	default:
@@ -224,9 +212,4 @@ func (p *Parser) parseList() *AST {
 			elems = append(elems, p.parseExpr(false))
 		}
 	}
-}
-
-// quote parses a quoted expression. The leading quote has been consumed.
-func (p *Parser) quote(tok *lex.Token) *AST {
-	return listExpr([]*AST{atomExpr(tok), p.parseExpr(false)}, nil)
 }
