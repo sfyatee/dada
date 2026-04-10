@@ -61,13 +61,13 @@ func (e *AST) String() string {
 		return "nil"
 	}
 	var b strings.Builder
-	e.buildString(&b, true)
+	e.buildString(&b)
 	return b.String()
 }
 
 // buildString is the internals of the String method. simplifyQuote
 // specifies whether (' expr) should be printed as 'expr.
-func (e *AST) buildString(b *strings.Builder, simplifyQuote bool) {
+func (e *AST) buildString(b *strings.Builder) {
 	if e == nil {
 		b.WriteString("nil")
 		return
@@ -80,23 +80,18 @@ func (e *AST) buildString(b *strings.Builder, simplifyQuote bool) {
 		b.WriteString("()")
 		return
 	}
-	if simplifyQuote && isQuoteList(e) {
-		b.WriteByte('\'')
-		e.List[1].buildString(b, simplifyQuote)
-		return
-	}
 	b.WriteByte('(')
 	for i, elem := range e.List {
 		if i > 0 {
 			b.WriteByte(' ')
 		}
-		elem.buildString(b, simplifyQuote)
+		elem.buildString(b)
 	}
 	if e.Tail != nil {
 		if len(e.List) > 0 {
 			b.WriteString(" . ")
 		}
-		e.Tail.buildString(b, simplifyQuote)
+		e.Tail.buildString(b)
 	}
 	b.WriteByte(')')
 }
