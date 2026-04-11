@@ -21,11 +21,10 @@ func Config(alwaysPrintSExprs bool) {
 }
 
 // AST represents an arbitrary parsed S-expression tree.
-// Exactly one of Atom or List should be populated.
+// Exactly one of PrimaryExpression or List should be populated.
 type AST struct {
-	Atom *lex.Token
+	PrimaryExpression *lex.Token
 	List []*AST
-	Tail *AST
 }
 
 // Expr is kept as an alias for compatibility with older parser code.
@@ -36,16 +35,13 @@ func (e *AST) SExprString() string {
 	if e == nil {
 		return "nil"
 	}
-	if e.Atom != nil {
-		return e.Atom.String()
+	if e.PrimaryExpression != nil {
+		return e.PrimaryExpression.String()
 	}
-	if len(e.List) == 0 && e.Tail == nil {
+	if len(e.List) == 0 {
 		return "nil"
 	}
 	tail := "nil"
-	if e.Tail != nil {
-		tail = e.Tail.SExprString()
-	}
 	for i := len(e.List) - 1; i >= 0; i-- {
 		tail = fmt.Sprintf("(%s . %s)", e.List[i].SExprString(), tail)
 	}
@@ -72,11 +68,11 @@ func (e *AST) buildString(b *strings.Builder, simplifyQuote bool) {
 		b.WriteString("nil")
 		return
 	}
-	if e.Atom != nil {
-		b.WriteString(e.Atom.String())
+	if e.PrimaryExpression != nil {
+		b.WriteString(e.PrimaryExpression.String())
 		return
 	}
-	if len(e.List) == 0 && e.Tail == nil {
+	if len(e.List) == 0 {
 		b.WriteString("()")
 		return
 	}
@@ -92,36 +88,29 @@ func (e *AST) buildString(b *strings.Builder, simplifyQuote bool) {
 		}
 		elem.buildString(b, simplifyQuote)
 	}
-	if e.Tail != nil {
-		if len(e.List) > 0 {
-			b.WriteString(" . ")
-		}
-		e.Tail.buildString(b, simplifyQuote)
-	}
 	b.WriteByte(')')
 }
 
 func isQuoteList(e *AST) bool {
 	return e != nil &&
-		e.Atom == nil &&
-		e.Tail == nil &&
+		e.PrimaryExpression == nil &&
 		len(e.List) == 2 &&
 		e.List[0] != nil &&
-		e.List[0].Atom != nil &&
-		e.List[0].Atom.Type() == lex.TokenQuote
+		e.List[0].PrimaryExpression != nil &&
+		e.List[0].PrimaryExpression.Type() == lex.TokenQuote
 }
 
-func atomExpr(tok *lex.Token) *AST {
-	return &AST{Atom: tok}
+func primaryExpressionExpr(tok *lex.Token) *AST {
+	return &AST{PrimaryExpression: tok}
 }
 
-func listExpr(list []*AST, tail *AST) *AST {
-	return &AST{List: list, Tail: tail}
+func listExpr(list []*AST) *AST {
+	return &AST{List: list}
 }
 
-func isAtomToken(typ lex.TokenType) bool {
+func isPrimaryExpressionToken(typ lex.TokenType) bool {
 	switch typ {
-	case lex.TokenAtom, lex.TokenConst, lex.TokenNumber, lex.TokenEqualEqual, lex.TokenArrow, lex.TokenUnderscore:
+	case lex.TokenPrimaryExpression, lex.TokenConst, lex.TokenNumber, lex.TokenEqualEqual, lex.TokenArrow, lex.TokenUnderscore:
 		return true
 	default:
 		return false
@@ -143,15 +132,15 @@ func NewParser(r io.RuneReader) *Parser {
 	}
 }
 
-// SkipSpace skips leading spaces, returning the rune that follows.
-func (p *Parser) SkipSpace() rune {
-	return p.lex.SkipSpace()
-}
+// // SkipSpace skips leading spaces, returning the rune that follows.
+// func (p *Parser) SkipSpace() rune {
+// 	return p.lex.SkipSpace()
+// }
 
-// SkipToNewline advances the input past the next newline.
-func (p *Parser) SkipToEndOfLine() {
-	p.lex.SkipToNewline()
-}
+// // SkipToNewline advances the input past the next newline.
+// func (p *Parser) SkipToEndOfLine() {
+// 	p.lex.SkipToNewline()
+// }
 
 func errorf(format string, args ...interface{}) {
 	panic(lex.Error(fmt.Sprintf(format, args...)))
@@ -165,24 +154,20 @@ func (p *Parser) next() *lex.Token {
 	return p.lex.Next()
 }
 
+func (p *Parser) getToken(final int position) {
+
+}
+
 func (p *Parser) back(tok *lex.Token) {
 	p.peekTok = tok
 }
 
 // Parse reads a single AST node using the list-oriented grammar.
-func (p *Parser) Parse() *AST {
-	return p.List()
-}
+func (p *Parser) ParseProgram() *AST {
 
-// SExpr parses an S-Expression, returning nil only at end of input.
-func (p *Parser) SExpr() *AST {
 	return p.parseExpr(true)
 }
 
-// List parses a list expression.
-func (p *Parser) List() *AST {
-	return p.parseExpr(false)
-}
 
 func (p *Parser) parseExpr(allowEOF bool) *AST {
 	tok := p.next()
@@ -197,8 +182,8 @@ func (p *Parser) parseExpr(allowEOF bool) *AST {
 	case lex.TokenLpar:
 		return p.parseList()
 	default:
-		if isAtomToken(tok.Type()) {
-			return atomExpr(tok)
+		if isPrimaryExpressionToken(tok.Type()) {
+			return primaryExpressionExpr(tok)
 		}
 	}
 	errorf("bad token in expression: %q", tok)
@@ -213,17 +198,7 @@ func (p *Parser) parseList() *AST {
 		case lex.TokenEOF:
 			panic(lex.EOF("eof"))
 		case lex.TokenRpar:
-			return listExpr(elems, nil)
-		case lex.TokenDot:
-			if len(elems) == 0 {
-				errorf("bad token parsing list: %q", tok)
-			}
-			tail := p.parseExpr(false)
-			rpar := p.next()
-			if rpar.Type() != lex.TokenRpar {
-				errorf("expected ')', found %q", rpar)
-			}
-			return listExpr(elems, tail)
+			return listExpr(elems)
 		default:
 			p.back(tok)
 			elems = append(elems, p.parseExpr(false))
@@ -233,5 +208,5 @@ func (p *Parser) parseList() *AST {
 
 // quote parses a quoted expression. The leading quote has been consumed.
 func (p *Parser) quote(tok *lex.Token) *AST {
-	return listExpr([]*AST{atomExpr(tok), p.parseExpr(false)}, nil)
+	return listExpr([]*AST{primaryExpressionExpr(tok), p.parseExpr(false)})
 }
