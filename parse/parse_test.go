@@ -9,11 +9,11 @@ func parseOne(t *testing.T, input string) *AST {
 	t.Helper()
 
 	p := NewParser(strings.NewReader(input))
-	expr := p.Parse()
-	if expr == nil {
-		t.Fatalf("Parse returned nil for %q", input)
+	prog := p.Parse()
+	if len(prog) != 1 {
+		t.Fatalf("Parse returned %d expressions for %q, want 1", len(prog), input)
 	}
-	return expr
+	return prog[0]
 }
 
 func TestParseAtomString(t *testing.T) {
@@ -43,4 +43,3 @@ func TestParseEmptyListString(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
-

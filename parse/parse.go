@@ -153,9 +153,16 @@ func (p *Parser) back(tok *lex.Token) {
 	p.peekTok = tok
 }
 
-// Parse reads a single AST node using the s-expression grammar.
-func (p *Parser) Parse() *AST {
-	return p.SExpr()
+// Parse parses an entire program as a sequence of top-level S-expressions.
+func (p *Parser) Parse() []*AST {
+	var program []*AST
+	for {
+		expr := p.SExpr()
+		if expr == nil {
+			return program
+		}
+		program = append(program, expr)
+	}
 }
 
 // SExpr parses an S-Expression, returning nil only at end of input.
