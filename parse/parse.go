@@ -38,16 +38,10 @@ func errorf(format string, args ...interface{}) {
 	panic(lex.Error(fmt.Sprintf(format, args...)))
 }
 
-// SExprString returns the expression as a formatted dotted S-expression.
-func (e *AST) SExprString() string {
-	if e == nil {
-		return "nil"
-	}
-	if e.Atom != nil {
-		return e.Atom.String()
-	}
-	if len(e.List) == 0 && e.Tail == nil {
-		return "()"
+func (p *Parser) getToken(offset int) *lex.Token {
+	idx := p.pos + offset
+	if idx < 0 {
+		errorf("token lookup before start of stream: pos=%d offset=%d", p.pos, offset)
 	}
 	if idx >= len(p.tokens) {
 		errorf("token lookup past end of stream: pos=%d offset=%d len=%d", p.pos, offset, len(p.tokens))
@@ -65,42 +59,33 @@ func (p *Parser) ParseProgram() *Program {
 	for p.startsListConst("def") {
 		funcDefs = append(funcDefs, p.parseFuncDef())
 	}
-	var b strings.Builder
-	e.buildString(&b)
-	return b.String()
-}
 
-// buildString is the internal helper for String
-func (e *AST) buildString(b *strings.Builder) {
-	if e == nil {
-		b.WriteString("nil")
-		return
+	expr := p.parseExpr(false)
+
+	if tok := p.getToken(0); tok.Type() != lex.TokenEOF {
+		errorf("expected EOF, found %q", tok)
 	}
-	if e.Atom != nil {
-		b.WriteString(e.Atom.String())
-		return
-	}
-	if len(e.List) == 0 && e.Tail == nil {
-		b.WriteString("()")
-		return
-	}
-	b.WriteByte('(')
-	for i, elem := range e.List {
-		if i > 0 {
-			b.WriteByte(' ')
-		}
-		elem.buildString(b)
-	}
-	if e.Tail != nil {
-		if len(e.List) > 0 {
-			b.WriteString(" . ")
-		}
-		e.Tail.buildString(b)
+
+	return &Program{
+		AlgDefs:  algDefs,
+		FuncDefs: funcDefs,
+		Expr:     expr,
 	}
 }
 
-func atomExpr(tok *lex.Token) *AST {
-	return &AST{Atom: tok}
+func (p *Parser) startsListConst(name string) bool {
+	return p.getToken(0).Type() == lex.TokenLpar &&
+		p.getToken(1).Type() == lex.TokenConst &&
+		p.getToken(1).Text() == name
+}
+
+func (p *Parser) expectType(typ lex.TokenType) *lex.Token {
+	tok := p.getToken(0)
+	if tok.Type() != typ {
+		errorf("expected %s, found %q", typ, tok)
+	}
+	p.pos++
+	return tok
 }
 
 func (p *Parser) expectConst(name string) *lex.Token {
@@ -154,17 +139,10 @@ func (p *Parser) parseConsDef() *ConsDef {
 	p.expectType(lex.TokenLpar)
 	name := p.expectPrimary().Text()
 
-// Parse parses an entire program as a sequence of top-level S-expressions.
-func (p *Parser) Parse() []*AST {
-	var program []*AST
-	for {
-		expr := p.SExpr()
-		if expr == nil {
-			return program
-		}
-		program = append(program, expr)
+	var args []Type
+	for p.getToken(0).Type() != lex.TokenRpar {
+		args = append(args, p.parseType())
 	}
-}
 
 	p.expectType(lex.TokenRpar)
 
@@ -174,19 +152,20 @@ func (p *Parser) Parse() []*AST {
 	}
 }
 
-func (p *Parser) parseExpr(allowEOF bool) *AST {
-	tok := p.next()
-	switch tok.Type() {
-	case lex.TokenEOF:
-		if allowEOF {
-			return nil
-		}
-		panic(lex.EOF("eof"))
-	case lex.TokenLpar:
-		return p.parseList()
-	default:
-		if isAtomToken(tok.Type()) {
-			return atomExpr(tok)
+func (p *Parser) parseType() Type {
+	tok := p.getToken(0)
+
+	if tok.Type() == lex.TokenConst {
+		switch tok.Text() {
+		case "Int":
+			p.pos++
+			return IntType{}
+		case "Unit":
+			p.pos++
+			return UnitType{}
+		case "Boolean":
+			p.pos++
+			return BooleanType{}
 		}
 	}
 
@@ -229,4 +208,8 @@ func (p *Parser) parseExpr(allowEOF bool) *AST {
 		errorf("expected type form, found %q", head)
 		panic("not reached")
 	}
+}
+
+func (p *Parser) startsList() bool {
+	return p.getToken(0).Type() == lex.TokenLpar
 }
