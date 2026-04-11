@@ -20,12 +20,11 @@ const (
 	tokenEOF
 	tokenLpar
 	tokenRpar
-	tokenDot
 	tokenQuote
 	tokenEqualEqual
 	tokenArrow
 	tokenUnderscore
-	tokenAtom
+	tokenPrimaryExpression
 	tokenConst
 	tokenNumber
 )
@@ -37,12 +36,11 @@ const (
 	TokenEOF = tokenEOF
 	TokenLpar = tokenLpar
 	TokenRpar = tokenRpar
-	TokenDot = tokenDot
 	TokenQuote = tokenQuote
 	TokenEqualEqual = tokenEqualEqual
 	TokenArrow = tokenArrow
 	TokenUnderscore = tokenUnderscore
-	TokenAtom = tokenAtom
+	TokenPrimaryExpression = tokenPrimaryExpression
 	TokenConst = tokenConst
 	TokenNumber = tokenNumber
 )
@@ -57,8 +55,6 @@ func (tt tokenType) String() string {
 		return "("
 	case tokenRpar:
 		return ")"
-	case tokenDot:
-		return "."
 	case tokenQuote:
 		return "'"
 	case tokenEqualEqual:
@@ -67,8 +63,8 @@ func (tt tokenType) String() string {
 		return "=>"
 	case tokenUnderscore:
 		return "_"
-	case tokenAtom:
-		return "atom"
+	case tokenPrimaryExpression:
+		return "primaryExpression"
 	case tokenConst:
 		return "const"
 	case tokenNumber:

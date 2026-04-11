@@ -48,8 +48,6 @@ func (l *lexer) next() *token {
 		return &token{typ: tokenLpar, text: "("}
 	case ')':
 		return &token{typ: tokenRpar, text: ")"}
-	case '.':
-		return &token{typ: tokenDot, text: "."}
 	case '\'':
 		return &token{typ: tokenQuote, text: "'"}
 	case '_':
@@ -66,15 +64,15 @@ func (l *lexer) next() *token {
 				return &token{typ: tokenArrow, text: "=>"}
 			}
 		}
-		return l.lexAtomOrConst(r)
+		return l.lexPrimaryExpressionOrConst(r)
 	}
 
 	if isDigit(r) || (r == '-' && l.peekDigit()) {
 		return l.lexNumber(r)
 	}
 
-	if isAtomStart(r) {
-		return l.lexAtomOrConst(r)
+	if isPrimaryExpressionStart(r) {
+		return l.lexPrimaryExpressionOrConst(r)
 	}
 
 	panic(Error("invalid character: " + string(r)))
@@ -150,7 +148,7 @@ func (l *lexer) lexNumber(first rune) *token {
 	}
 }
 
-func (l *lexer) lexAtomOrConst(first rune) *token {
+func (l *lexer) lexPrimaryExpressionOrConst(first rune) *token {
 	rs := []rune{first}
 
 	for {
@@ -161,7 +159,7 @@ func (l *lexer) lexAtomOrConst(first rune) *token {
 		if err != nil {
 			panic(Error(err.Error()))
 		}
-		if !isAtomPart(r) {
+		if !isPrimaryExpressionPart(r) {
 			if err := l.r.UnreadRune(); err != nil {
 				panic(Error(err.Error()))
 			}
@@ -179,7 +177,7 @@ func (l *lexer) lexAtomOrConst(first rune) *token {
 	}
 
 	return &token{
-		typ:  tokenAtom,
+		typ:  tokenPrimaryExpression,
 		text: s,
 	}
 }
@@ -212,7 +210,7 @@ func isDigit(r rune) bool {
 	return '0' <= r && r <= '9'
 }
 
-func isAtomStart(r rune) bool {
+func isPrimaryExpressionStart(r rune) bool {
 	if unicode.IsLetter(r) {
 		return true
 	}
@@ -224,8 +222,8 @@ func isAtomStart(r rune) bool {
 	}
 }
 
-func isAtomPart(r rune) bool {
-	return isAtomStart(r) || isDigit(r)
+func isPrimaryExpressionPart(r rune) bool {
+	return isPrimaryExpressionStart(r) || isDigit(r)
 }
 
 func isReservedConst(s string) bool {

@@ -43,7 +43,7 @@ func TestReservedWordsAndNil(t *testing.T) {
 		{tokenConst, "case"},
 		{tokenConst, "algdef"},
 		{tokenConst, "def"},
-		{tokenAtom, "nil"},
+		{tokenPrimaryExpression, "nil"},
 		{tokenEOF, "EOF"},
 	}
 
