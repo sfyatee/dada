@@ -1,35 +1,42 @@
-// Copyright 2020 Rob Pike. All rights reserved.
-// Use of this source code is governed by a BSD
-// license that can be found in the LICENSE file.
-
 package parse
 
 import (
 	"dada/lex"
 	"fmt"
 	"io"
-	"strings"
+	"strconv"
 )
 
-// printSExpr configures the interpreter to print S-Expressions.
-var printSExpr bool
-
-// Config configures the interpreter. The argument specifies whether output
-// should be S-Expressions rather than lists.
-func Config(alwaysPrintSExprs bool) {
-	printSExpr = alwaysPrintSExprs
+// Parser parses a full token stream into the typed AST nodes in ast.go.
+type Parser struct {
+	tokens []*lex.Token
+	pos    int
 }
 
-// AST represents an arbitrary parsed S-expression tree.
-// Exactly one of Atom or List should be populated.
-type AST struct {
-	Atom *lex.Token
-	List []*AST
-	Tail *AST
+// NewParser returns a parser initialized with all tokens from the input.
+// Parse errors cause panics of type lex.Error that the caller must handle.
+func NewParser(r io.RuneReader) *Parser {
+	return &Parser{
+		tokens: lexAll(r),
+		pos:    0,
+	}
 }
 
-// Expr is kept as an alias for compatibility with older parser code.
-type Expr = AST
+func lexAll(r io.RuneReader) []*lex.Token {
+	l := lex.NewLexer(r)
+	var tokens []*lex.Token
+	for {
+		tok := l.Next()
+		tokens = append(tokens, tok)
+		if tok.Type() == lex.TokenEOF {
+			return tokens
+		}
+	}
+}
+
+func errorf(format string, args ...interface{}) {
+	panic(lex.Error(fmt.Sprintf(format, args...)))
+}
 
 // SExprString returns the expression as a formatted dotted S-expression.
 func (e *AST) SExprString() string {
@@ -42,23 +49,21 @@ func (e *AST) SExprString() string {
 	if len(e.List) == 0 && e.Tail == nil {
 		return "()"
 	}
-	tail := "nil"
-	if e.Tail != nil {
-		tail = e.Tail.SExprString()
+	if idx >= len(p.tokens) {
+		errorf("token lookup past end of stream: pos=%d offset=%d len=%d", p.pos, offset, len(p.tokens))
 	}
-	for i := len(e.List) - 1; i >= 0; i-- {
-		tail = fmt.Sprintf("(%s . %s)", e.List[i].SExprString(), tail)
-	}
-	return tail
+	return p.tokens[idx]
 }
 
-// String returns the expression as a formatted list (unless printSExpr is set).
-func (e *AST) String() string {
-	if printSExpr {
-		return e.SExprString()
+func (p *Parser) ParseProgram() *Program {
+	var algDefs []*AlgDef
+	for p.startsListConst("algdef") {
+		algDefs = append(algDefs, p.parseAlgDef())
 	}
-	if e == nil {
-		return "nil"
+
+	var funcDefs []*FuncDef
+	for p.startsListConst("def") {
+		funcDefs = append(funcDefs, p.parseFuncDef())
 	}
 	var b strings.Builder
 	e.buildString(&b)
@@ -92,66 +97,62 @@ func (e *AST) buildString(b *strings.Builder) {
 		}
 		e.Tail.buildString(b)
 	}
-	b.WriteByte(')')
 }
 
 func atomExpr(tok *lex.Token) *AST {
 	return &AST{Atom: tok}
 }
 
-func listExpr(list []*AST, tail *AST) *AST {
-	return &AST{List: list, Tail: tail}
+func (p *Parser) expectConst(name string) *lex.Token {
+	tok := p.getToken(0)
+	if tok.Type() != lex.TokenConst || tok.Text() != name {
+		errorf("expected %q, found %q", name, tok)
+	}
+	p.pos++
+	return tok
 }
 
-func isAtomToken(typ lex.TokenType) bool {
-	switch typ {
-	case lex.TokenAtom, lex.TokenConst, lex.TokenNumber, lex.TokenEqualEqual, lex.TokenArrow, lex.TokenUnderscore:
-		return true
-	default:
-		return false
+func (p *Parser) expectPrimary() *lex.Token {
+	tok := p.getToken(0)
+	if tok.Type() != lex.TokenPrimaryExpression {
+		errorf("expected identifier, found %q", tok)
+	}
+	p.pos++
+	return tok
+}
+
+func (p *Parser) parseAlgDef() *AlgDef {
+	p.expectType(lex.TokenLpar)
+	p.expectConst("algdef")
+	name := p.expectPrimary().Text()
+
+	p.expectType(lex.TokenLpar)
+	var typeVars []string
+	for p.getToken(0).Type() != lex.TokenRpar {
+		typeVars = append(typeVars, p.expectPrimary().Text())
+	}
+	p.expectType(lex.TokenRpar)
+
+	var consDefs []*ConsDef
+	for p.startsList() {
+		consDefs = append(consDefs, p.parseConsDef())
+	}
+	if len(consDefs) == 0 {
+		errorf("algdef %q must contain at least one constructor", name)
+	}
+
+	p.expectType(lex.TokenRpar)
+
+	return &AlgDef{
+		Name:     name,
+		TypeVars: typeVars,
+		ConsDefs: consDefs,
 	}
 }
 
-// Parser is the parser for S-expression syntax.
-type Parser struct {
-	lex     *lex.Lexer
-	peekTok *lex.Token
-}
-
-// NewParser returns a new parser that will read from the RuneReader.
-// Parse errors cause panics of type lex.Error that the caller must handle.
-func NewParser(r io.RuneReader) *Parser {
-	return &Parser{
-		lex:     lex.NewLexer(r),
-		peekTok: nil,
-	}
-}
-
-// SkipSpace skips leading spaces, returning the rune that follows.
-func (p *Parser) SkipSpace() rune {
-	return p.lex.SkipSpace()
-}
-
-// SkipToNewline advances the input past the next newline.
-func (p *Parser) SkipToEndOfLine() {
-	p.lex.SkipToNewline()
-}
-
-func errorf(format string, args ...interface{}) {
-	panic(lex.Error(fmt.Sprintf(format, args...)))
-}
-
-func (p *Parser) next() *lex.Token {
-	if tok := p.peekTok; tok != nil {
-		p.peekTok = nil
-		return tok
-	}
-	return p.lex.Next()
-}
-
-func (p *Parser) back(tok *lex.Token) {
-	p.peekTok = tok
-}
+func (p *Parser) parseConsDef() *ConsDef {
+	p.expectType(lex.TokenLpar)
+	name := p.expectPrimary().Text()
 
 // Parse parses an entire program as a sequence of top-level S-expressions.
 func (p *Parser) Parse() []*AST {
@@ -165,14 +166,12 @@ func (p *Parser) Parse() []*AST {
 	}
 }
 
-// SExpr parses an S-Expression, returning nil only at end of input.
-func (p *Parser) SExpr() *AST {
-	return p.parseExpr(true)
-}
+	p.expectType(lex.TokenRpar)
 
-// List parses a list expression.
-func (p *Parser) List() *AST {
-	return p.parseExpr(false)
+	return &ConsDef{
+		Name: name,
+		Args: args,
+	}
 }
 
 func (p *Parser) parseExpr(allowEOF bool) *AST {
@@ -190,32 +189,44 @@ func (p *Parser) parseExpr(allowEOF bool) *AST {
 			return atomExpr(tok)
 		}
 	}
-	errorf("bad token in expression: %q", tok)
-	panic("not reached")
-}
 
-func (p *Parser) parseList() *AST {
-	var elems []*AST
-	for {
-		tok := p.next()
-		switch tok.Type() {
-		case lex.TokenEOF:
-			panic(lex.EOF("eof"))
-		case lex.TokenRpar:
-			return listExpr(elems, nil)
-		case lex.TokenDot:
-			if len(elems) == 0 {
-				errorf("bad token parsing list: %q", tok)
-			}
-			tail := p.parseExpr(false)
-			rpar := p.next()
-			if rpar.Type() != lex.TokenRpar {
-				errorf("expected ')', found %q", rpar)
-			}
-			return listExpr(elems, tail)
-		default:
-			p.back(tok)
-			elems = append(elems, p.parseExpr(false))
+	if tok.Type() == lex.TokenPrimaryExpression {
+		p.pos++
+		return TypeVar{Name: tok.Text()}
+	}
+
+	if tok.Type() != lex.TokenLpar {
+		errorf("expected type, found %q", tok)
+	}
+
+	p.pos++
+	head := p.getToken(0)
+
+	switch {
+	case head.Type() == lex.TokenArrow:
+		p.pos++
+		p.expectType(lex.TokenLpar)
+		var params []Type
+		for p.getToken(0).Type() != lex.TokenRpar {
+			params = append(params, p.parseType())
 		}
+		p.expectType(lex.TokenRpar)
+		ret := p.parseType()
+		p.expectType(lex.TokenRpar)
+		return FuncType{Params: params, Return: ret}
+
+	case head.Type() == lex.TokenConst && head.Text() == "alg":
+		p.pos++
+		name := p.expectPrimary().Text()
+		var args []Type
+		for p.getToken(0).Type() != lex.TokenRpar {
+			args = append(args, p.parseType())
+		}
+		p.expectType(lex.TokenRpar)
+		return AlgType{Name: name, Args: args}
+
+	default:
+		errorf("expected type form, found %q", head)
+		panic("not reached")
 	}
 }
