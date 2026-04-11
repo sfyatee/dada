@@ -132,16 +132,6 @@ func NewParser(r io.RuneReader) *Parser {
 	}
 }
 
-// // SkipSpace skips leading spaces, returning the rune that follows.
-// func (p *Parser) SkipSpace() rune {
-// 	return p.lex.SkipSpace()
-// }
-
-// // SkipToNewline advances the input past the next newline.
-// func (p *Parser) SkipToEndOfLine() {
-// 	p.lex.SkipToNewline()
-// }
-
 func errorf(format string, args ...interface{}) {
 	panic(lex.Error(fmt.Sprintf(format, args...)))
 }
