@@ -31,6 +31,7 @@ type AST struct {
 // Expr is kept as an alias for compatibility with older parser code.
 type Expr = AST
 
+<<<<<<< Updated upstream
 // SExprString returns the expression as a formatted dotted S-expression.
 func (e *AST) SExprString() string {
 	if e == nil {
@@ -101,6 +102,8 @@ func (e *AST) buildString(b *strings.Builder, simplifyQuote bool) {
 	b.WriteByte(')')
 }
 
+=======
+>>>>>>> Stashed changes
 func isQuoteList(e *AST) bool {
 	return e != nil &&
 		e.Atom == nil &&
