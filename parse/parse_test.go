@@ -93,6 +93,90 @@ func TestParseNestedOpExpr(t *testing.T) {
 	}
 }
 
+func TestParseDivisionLessThanAndEqualEqual(t *testing.T) {
+	for _, tt := range []struct {
+		input string
+		op    string
+	}{
+		{"(/ 6 3)", "/"},
+		{"(< 1 2)", "<"},
+		{"(== true false)", "=="},
+	} {
+		t.Run(tt.op, func(t *testing.T) {
+			expr := parseOne(t, tt.input)
+
+			op, ok := expr.(OpExpr)
+			if !ok {
+				t.Fatalf("got %T, want OpExpr", expr)
+			}
+			if got, want := op.Op, tt.op; got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestParseUnitBooleanTypesAndLiterals(t *testing.T) {
+	input := `
+(def f () ((Unit u) (Boolean b)) Unit unit)
+(call f unit true)
+`
+	prog := parseProgram(t, input)
+
+	if got, want := len(prog.FuncDefs), 1; got != want {
+		t.Fatalf("got %d funcdefs, want %d", got, want)
+	}
+
+	fd := prog.FuncDefs[0]
+	if _, ok := fd.Params[0].Type.(UnitType); !ok {
+		t.Fatalf("first param type: got %T, want UnitType", fd.Params[0].Type)
+	}
+	if _, ok := fd.Params[1].Type.(BooleanType); !ok {
+		t.Fatalf("second param type: got %T, want BooleanType", fd.Params[1].Type)
+	}
+	if _, ok := fd.ReturnType.(UnitType); !ok {
+		t.Fatalf("return type: got %T, want UnitType", fd.ReturnType)
+	}
+	if _, ok := fd.Body.(UnitExpr); !ok {
+		t.Fatalf("body: got %T, want UnitExpr", fd.Body)
+	}
+
+	call, ok := prog.Expr.(CallExpr)
+	if !ok {
+		t.Fatalf("final expression: got %T, want CallExpr", prog.Expr)
+	}
+	if got, want := len(call.Args), 2; got != want {
+		t.Fatalf("got %d args, want %d", got, want)
+	}
+	if _, ok := call.Args[0].(UnitExpr); !ok {
+		t.Fatalf("first arg: got %T, want UnitExpr", call.Args[0])
+	}
+	b, ok := call.Args[1].(BoolExpr)
+	if !ok {
+		t.Fatalf("second arg: got %T, want BoolExpr", call.Args[1])
+	}
+	if !b.Value {
+		t.Fatalf("second arg: got false, want true")
+	}
+}
+
+func TestParsePrintlnFalse(t *testing.T) {
+	expr := parseOne(t, "(println false)")
+
+	println, ok := expr.(PrintlnExpr)
+	if !ok {
+		t.Fatalf("got %T, want PrintlnExpr", expr)
+	}
+
+	b, ok := println.Expr.(BoolExpr)
+	if !ok {
+		t.Fatalf("println expr: got %T, want BoolExpr", println.Expr)
+	}
+	if b.Value {
+		t.Fatalf("println expr: got true, want false")
+	}
+}
+
 func TestParseRejectsMissingClosingParen(t *testing.T) {
 	mustPanic(t, func() {
 		_ = parseProgram(t, "(call f 1")
