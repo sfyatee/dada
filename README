@@ -1,5 +1,13 @@
-demian alberto dylan alberto
+COMP 430 Project - Language Design and Compiler
 
-references: 
+D.A.D.A (demian alberto dylan alberto)
+
+run:
+go run .
+
+run all tests:
+go test ./...
+
+references:
 https://github.com/robpike/ivy
 https://github.com/robpike/lisp
