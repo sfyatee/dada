@@ -87,3 +87,71 @@ func TestGenerateBlock(t *testing.T) {
 		t.Fatalf("missing assignment:\n%s", js)
 	}
 }
+
+func TestGenerateConstructor(t *testing.T) {
+	js := generate(t, `
+(algdef Maybe (A)
+	(just A)
+	(nothing))
+
+(cons just 5)
+`)
+
+	if !strings.Contains(js, `tag: "just"`) {
+		t.Fatalf("missing constructor tag:\n%s", js)
+	}
+
+	if !strings.Contains(js, "just(5);") {
+		t.Fatalf("missing constructor call:\n%s", js)
+	}
+}
+
+func TestGenerateMatch(t *testing.T) {
+	js := generate(t, `
+(match xs
+	(case _ 0)
+	(case (cons lcons head tail) head))
+`)
+
+	if !strings.Contains(js, `throw new Error("non-exhaustive match")`) {
+		t.Fatalf("missing exhaustive check:\n%s", js)
+	}
+
+	if !strings.Contains(js, "__dada_match_") {
+		t.Fatalf("missing temp match variable:\n%s", js)
+	}
+}
+
+func TestGenerateConstructor(t *testing.T) {
+	js := generate(t, `
+(algdef Maybe (A)
+	(just A)
+	(nothing))
+
+(cons just 5)
+`)
+
+	if !strings.Contains(js, `tag: "just"`) {
+		t.Fatalf("missing constructor tag:\n%s", js)
+	}
+
+	if !strings.Contains(js, "just(5);") {
+		t.Fatalf("missing constructor call:\n%s", js)
+	}
+}
+
+func TestGenerateMatch(t *testing.T) {
+	js := generate(t, `
+(match xs
+	(case _ 0)
+	(case (cons lcons head tail) head))
+`)
+
+	if !strings.Contains(js, `throw new Error("non-exhaustive match")`) {
+		t.Fatalf("missing exhaustive check:\n%s", js)
+	}
+
+	if !strings.Contains(js, "__dada_match_") {
+		t.Fatalf("missing temp match variable:\n%s", js)
+	}
+}
