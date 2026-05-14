@@ -55,3 +55,35 @@ func TestGenerateNilProgram(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestGenerateLambda(t *testing.T) {
+	js := generate(t, `
+(callhof (=> ((Int x)) (+ x 1)) 5)
+`)
+
+	if !strings.Contains(js, "((x) => (x + 1))(5);") {
+		t.Fatalf("bad lambda generation:\n%s", js)
+	}
+}
+
+func TestGenerateBlock(t *testing.T) {
+	js := generate(t, `
+(block
+	(val x 1)
+	(var Int y 2)
+	(= y (+ x y))
+	y)
+`)
+
+	if !strings.Contains(js, "const x = 1;") {
+		t.Fatalf("missing const stmt:\n%s", js)
+	}
+
+	if !strings.Contains(js, "let y = 2;") {
+		t.Fatalf("missing let stmt:\n%s", js)
+	}
+
+	if !strings.Contains(js, "y = (x + y);") {
+		t.Fatalf("missing assignment:\n%s", js)
+	}
+}
