@@ -134,7 +134,7 @@ func (g *generator) function(fn *parse.FuncDef) error {
 
 	// JS func header
 	g.line(0, fmt.Sprintf("function %s(%s) {", fn.Name, joinedParams))
-	
+
 	// get expression JS output
 	body, err := g.expr(fn.Body, 1)
 	if err != nil {
@@ -148,9 +148,9 @@ func (g *generator) function(fn *parse.FuncDef) error {
 	return nil
 }
 
-// write expression to output. returns JS body as string 
+// write expression to output. returns JS body as string
 func (g *generator) expr(expr parse.Expr, level int) (string, error) {
-	
+
 	// each expression type has a different case
 	switch e := expr.(type) {
 	case nil:
@@ -184,7 +184,7 @@ func (g *generator) expr(expr parse.Expr, level int) (string, error) {
 		return g.blockExpr(e, level)
 	case parse.ConsExpr:
 		return g.consExpr(e, level)
-	case parse.MatchExpr: // not yet implemented
+	case parse.MatchExpr:
 		return g.matchExpr(e, level)
 	default:
 		return "", fmt.Errorf("unsupported expression %T", expr)
@@ -288,7 +288,7 @@ func (g *generator) blockExpr(expr parse.BlockExpr, level int) (string, error) {
 	b.WriteString("(() => {\n")
 
 	for _, stmt := range expr.Stmts {
-		js, err := g.stmt(stmt, level+1) // not implemented
+		js, err := g.stmt(stmt, level+1)
 		if err != nil {
 			return "", err
 		}
@@ -305,12 +305,145 @@ func (g *generator) blockExpr(expr parse.BlockExpr, level int) (string, error) {
 	return b.String(), nil
 }
 
+// turns D.A.D.A block statements into JS statements. e.g. var -> let
 func (g *generator) stmt(stmt parse.Stmt, level int) (string, error) {
-	// stmt implementation missing
+	switch s := stmt.(type) {
+	case nil:
+		return "", fmt.Errorf("nil statement")
+	case parse.ValStmt:
+		expr, err := g.expr(s.Expr, level)
+		if err != nil {
+			return "", err
+		}
+		return g.formatExprLine(level, "const "+s.Name+" = ", expr, ";"), nil
+	case parse.VarStmt:
+		expr, err := g.expr(s.Expr, level)
+		if err != nil {
+			return "", err
+		}
+		return g.formatExprLine(level, "let "+s.Name+" = ", expr, ";"), nil
+	case parse.AssignStmt:
+		expr, err := g.expr(s.Expr, level)
+		if err != nil {
+			return "", err
+		}
+		return g.formatExprLine(level, s.Name+" = ", expr, ";"), nil
+	default:
+		return "", fmt.Errorf("unsupported statement %T", stmt)
+	}
 }
 
+// turns code into a JS IIFE so a match expression can produce a value with return
 func (g *generator) matchExpr(expr parse.MatchExpr, level int) (string, error) {
-	// matchExpr implementation missing
+	targetExpr, err := g.expr(expr.Expr, level+1)
+	if err != nil {
+		return "", err
+	}
+
+	target := g.temp("match")
+	var b strings.Builder
+	b.WriteString("(() => {\n")
+	b.WriteString(g.formatExprLine(level+1, "const "+target+" = ", targetExpr, ";"))
+
+	for _, c := range expr.Cases {
+		if c == nil {
+			return "", fmt.Errorf("nil match case")
+		}
+
+		plan, err := g.pattern(c.Pattern, target)
+		if err != nil {
+			return "", err
+		}
+		test := "true"
+		if len(plan.tests) > 0 {
+			test = strings.Join(plan.tests, " && ")
+		}
+
+		b.WriteString(indent(level + 1))
+		b.WriteString("if (")
+		b.WriteString(test)
+		b.WriteString(") {\n")
+
+		for _, binding := range plan.bindings {
+			b.WriteString(indent(level + 2))
+			b.WriteString("const ")
+			b.WriteString(binding.name)
+			b.WriteString(" = ")
+			b.WriteString(binding.value)
+			b.WriteString(";\n")
+		}
+
+		caseExpr, err := g.expr(c.Expr, level+2)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(g.formatExprLine(level+2, "return ", caseExpr, ";"))
+		b.WriteString(indent(level + 1))
+		b.WriteString("}\n")
+	}
+
+	b.WriteString(indent(level + 1))
+	b.WriteString(`throw new Error("non-exhaustive match");`)
+	b.WriteByte('\n')
+	b.WriteString(indent(level))
+	b.WriteString("})()")
+	return b.String(), nil
+}
+
+// stores the JS condition checks and variable for a match case
+type patternPlan struct {
+	tests    []string
+	bindings []patternBinding
+}
+
+type patternBinding struct {
+	name  string
+	value string
+}
+
+// recursively converts wildcard, variable, and constructor patterns into a patternPlan
+func (g *generator) pattern(pattern parse.Pattern, value string) (patternPlan, error) {
+	switch p := pattern.(type) {
+	case nil:
+		return patternPlan{}, fmt.Errorf("nil pattern")
+	case parse.WildcardPattern:
+		return patternPlan{}, nil
+	case parse.VarPattern:
+		return patternPlan{
+			bindings: []patternBinding{{
+				name:  p.Name,
+				value: value,
+			}},
+		}, nil
+	case parse.ConsPattern:
+		plan := patternPlan{
+			tests: []string{
+				fmt.Sprintf("%s != null", value),
+				fmt.Sprintf("Array.isArray(%s.values)", value),
+				fmt.Sprintf("%s.tag === %s", value, strconv.Quote(p.Name)),
+				fmt.Sprintf("%s.values.length === %d", value, len(p.Patterns)),
+			},
+		}
+		for i, child := range p.Patterns {
+			childValue := fmt.Sprintf("%s.values[%d]", value, i)
+			childPlan, err := g.pattern(child, childValue)
+			if err != nil {
+				return patternPlan{}, err
+			}
+			plan.tests = append(plan.tests, childPlan.tests...)
+			plan.bindings = append(plan.bindings, childPlan.bindings...)
+		}
+		return plan, nil
+	default:
+		return patternPlan{}, fmt.Errorf("unsupported pattern %T", pattern)
+	}
+}
+
+// creates unique internal names. e.g. __dada_match_0, so the matched expression is evaluated once.
+func (g *generator) temp(kind string) string {
+	name := fmt.Sprintf("__dada_%s_%d", kind, g.tempID)
+	g.tempID++
+	return name
 }
 
 // writes a single line to output
