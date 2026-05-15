@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"dada/check"
 	"dada/gen"
 	"dada/lex"
 	"dada/parse"
@@ -45,6 +46,10 @@ func run() error {
 	prog, err := parseInput(input)
 	if err != nil {
 		return err
+	}
+
+	if err := check.Check(prog); err != nil {
+		return fmt.Errorf("type error: %s", err)
 	}
 
 	var output io.Writer = os.Stdout
