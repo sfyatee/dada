@@ -504,6 +504,9 @@ func (c *Checker) checkExpr(env *TypeEnv, expr parse.Expr) (parse.Type, error) {
 	case parse.ConsExpr:
 		return c.checkConsExpr(env, e)
 
+	case parse.MatchExpr:
+		return c.checkMatchExpr(env, e)
+
 	}
 
 	return nil, Error("unsupported expression")
@@ -746,4 +749,76 @@ func (c *Checker) checkConsExpr(env *TypeEnv, expr parse.ConsExpr) (parse.Type, 
 	}
 
 	return applySubst(sig.Result, subst), nil
+}
+
+func (c *Checker) checkMatchExpr(env *TypeEnv, expr parse.MatchExpr) (parse.Type, error) {
+	targetType, err := c.checkExpr(env, expr.Expr)
+	if err != nil {
+		return nil, err
+	}
+
+	var resultType parse.Type
+
+	for i, matchCase := range expr.Cases {
+		child := NewTypeEnv(env)
+
+		if err := c.checkPattern(child, matchCase.Pattern, targetType); err != nil {
+			return nil, err
+		}
+
+		caseType, err := c.checkExpr(child, matchCase.Expr)
+		if err != nil {
+			return nil, err
+		}
+
+		if i == 0 {
+			resultType = caseType
+		} else if !equalTypes(resultType, caseType) {
+			return nil, Error("match case type mismatch")
+		}
+	}
+
+	return resultType, nil
+}
+
+func (c *Checker) checkPattern(env *TypeEnv, pattern parse.Pattern, expected parse.Type) error {
+	switch p := pattern.(type) {
+
+	case parse.WildcardPattern:
+		return nil
+
+	case parse.VarPattern:
+		env.Bind(p.Name, expected)
+		return nil
+
+	case parse.ConsPattern:
+		sig, ok := c.cons[p.Name]
+		if !ok {
+			return Error("unknown constructor in pattern")
+		}
+
+		sig = instantiateConsSig(sig)
+
+		subst := Subst{}
+
+		if err := unify(sig.Result, expected, subst); err != nil {
+			return Error("constructor pattern type mismatch")
+		}
+
+		if len(p.Patterns) != len(sig.Args) {
+			return Error("constructor pattern argument count mismatch")
+		}
+
+		for i, childPattern := range p.Patterns {
+			argType := applySubst(sig.Args[i], subst)
+
+			if err := c.checkPattern(env, childPattern, argType); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	return Error("unsupported pattern")
 }
