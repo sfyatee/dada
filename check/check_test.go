@@ -714,3 +714,62 @@ func TestCheckMatchExpr(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCheckRejectsNonExhaustiveMatch(t *testing.T) {
+	prog := &parse.Program{
+		AlgDefs: []*parse.AlgDef{
+			listAlgDef(),
+		},
+		Expr: parse.MatchExpr{
+			Expr: intListExpr(),
+			Cases: []*parse.Case{
+				{
+					Pattern: parse.ConsPattern{
+						Name: "lnil",
+					},
+					Expr: parse.IntExpr{Value: 0},
+				},
+			},
+		},
+	}
+
+	if err := Check(prog); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckWildcardPatternIsExhaustive(t *testing.T) {
+	prog := &parse.Program{
+		Expr: parse.MatchExpr{
+			Expr: parse.IntExpr{Value: 1},
+			Cases: []*parse.Case{
+				{
+					Pattern: parse.WildcardPattern{},
+					Expr:    parse.IntExpr{Value: 0},
+				},
+			},
+		},
+	}
+
+	if err := Check(prog); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckVarPatternIsExhaustive(t *testing.T) {
+	prog := &parse.Program{
+		Expr: parse.MatchExpr{
+			Expr: parse.IntExpr{Value: 1},
+			Cases: []*parse.Case{
+				{
+					Pattern: parse.VarPattern{Name: "x"},
+					Expr:    parse.VarExpr{Name: "x"},
+				},
+			},
+		},
+	}
+
+	if err := Check(prog); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
