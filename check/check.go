@@ -127,6 +127,32 @@ func (c *Checker) registerAlgDef(def *parse.AlgDef) error {
 
 	c.algs[def.Name] = def
 
+	var resultArgs []parse.Type
+
+	for _, tv := range def.TypeVars {
+		resultArgs = append(
+			resultArgs,
+			parse.TypeVar{Name: tv},
+		)
+	}
+
+	result := parse.AlgType{
+		Name: def.Name,
+		Args: resultArgs,
+	}
+
+	for _, cons := range def.ConsDefs {
+		if _, exists := c.cons[cons.Name]; exists {
+			return Error("duplicate constructor")
+		}
+
+		c.cons[cons.Name] = &ConsSig{
+			TypeVars: def.TypeVars,
+			Args:     cons.Args,
+			Result:   result,
+		}
+	}
+
 	return nil
 }
 
@@ -312,6 +338,31 @@ func instantiateFuncSig(sig *FuncSig) *FuncSig {
 	}
 }
 
+func instantiateConsSig(sig *ConsSig) *ConsSig {
+	subst := Subst{}
+
+	for _, tv := range sig.TypeVars {
+		subst[tv] = freshTypeVar()
+	}
+
+	var args []parse.Type
+
+	for _, a := range sig.Args {
+		args = append(
+			args,
+			applySubst(a, subst),
+		)
+	}
+
+	return &ConsSig{
+		Args: args,
+		Result: applySubst(
+			sig.Result,
+			subst,
+		),
+	}
+}
+
 func unify(a parse.Type, b parse.Type, subst Subst) error {
 	a = applySubst(a, subst)
 	b = applySubst(b, subst)
@@ -449,6 +500,9 @@ func (c *Checker) checkExpr(env *TypeEnv, expr parse.Expr) (parse.Type, error) {
 
 	case parse.BlockExpr:
 		return c.checkBlockExpr(env, e)
+
+	case parse.ConsExpr:
+		return c.checkConsExpr(env, e)
 
 	}
 
@@ -664,4 +718,32 @@ func (c *Checker) checkStmt(env *TypeEnv, stmt parse.Stmt) error {
 	}
 
 	return Error("unsupported statement")
+}
+
+func (c *Checker) checkConsExpr(env *TypeEnv, expr parse.ConsExpr) (parse.Type, error) {
+	sig, ok := c.cons[expr.Name]
+	if !ok {
+		return nil, Error("unknown constructor")
+	}
+
+	sig = instantiateConsSig(sig)
+
+	if len(expr.Args) != len(sig.Args) {
+		return nil, Error("wrong number of constructor arguments")
+	}
+
+	subst := Subst{}
+
+	for i, arg := range expr.Args {
+		argType, err := c.checkExpr(env, arg)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := unify(sig.Args[i], argType, subst); err != nil {
+			return nil, Error("constructor argument type mismatch")
+		}
+	}
+
+	return applySubst(sig.Result, subst), nil
 }
