@@ -6,6 +6,56 @@ import (
 	"dada/parse"
 )
 
+func intExpr(value int) parse.IntExpr {
+	return parse.IntExpr{Value: value}
+}
+
+func boolExpr(value bool) parse.BoolExpr {
+	return parse.BoolExpr{Value: value}
+}
+
+func varExpr(name string) parse.VarExpr {
+	return parse.VarExpr{Name: name}
+}
+
+func expectCheckOK(t *testing.T, prog *parse.Program) {
+	t.Helper()
+
+	if err := Check(prog); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func expectCheckError(t *testing.T, prog *parse.Program) {
+	t.Helper()
+
+	if err := Check(prog); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func expectExprOK(t *testing.T, expr parse.Expr, want parse.Type) {
+	t.Helper()
+
+	typ, err := newChecker().checkExpr(NewTypeEnv(nil), expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !equalTypes(typ, want) {
+		t.Fatalf("wrong type")
+	}
+}
+
+func expectExprError(t *testing.T, expr parse.Expr) {
+	t.Helper()
+
+	_, err := newChecker().checkExpr(NewTypeEnv(nil), expr)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func listAlgDef() *parse.AlgDef {
 	return &parse.AlgDef{
 		Name:     "List",
@@ -49,24 +99,20 @@ func TestCheckerExists(t *testing.T) {
 }
 
 func TestDuplicateFunctionFails(t *testing.T) {
-	prog := &parse.Program{
+	expectCheckError(t, &parse.Program{
 		FuncDefs: []*parse.FuncDef{
 			{
 				Name:       "f",
 				ReturnType: parse.IntType{},
-				Body:       parse.IntExpr{Value: 1},
+				Body:       intExpr(1),
 			},
 			{
 				Name:       "f",
 				ReturnType: parse.IntType{},
-				Body:       parse.IntExpr{Value: 2},
+				Body:       intExpr(2),
 			},
 		},
-	}
-
-	if err := Check(prog); err == nil {
-		t.Fatalf("expected error")
-	}
+	})
 }
 
 func TestApplySubst(t *testing.T) {
@@ -104,49 +150,74 @@ func TestUnifyTypeVar(t *testing.T) {
 	}
 }
 
-func TestAddExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	typ, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op: "+",
-			Left: parse.IntExpr{
-				Value: 1,
-			},
-			Right: parse.IntExpr{
-				Value: 2,
-			},
+func TestCheckOpExprs(t *testing.T) {
+	tests := []struct {
+		name string
+		expr parse.OpExpr
+		want parse.Type
+	}{
+		{
+			name: "add",
+			expr: parse.OpExpr{Op: "+", Left: intExpr(1), Right: intExpr(2)},
+			want: parse.IntType{},
 		},
-	)
-
-	if err != nil {
-		t.Fatalf("unexpected error")
+		{
+			name: "less than",
+			expr: parse.OpExpr{Op: "<", Left: intExpr(1), Right: intExpr(2)},
+			want: parse.BooleanType{},
+		},
+		{
+			name: "equal equal",
+			expr: parse.OpExpr{Op: "==", Left: intExpr(1), Right: intExpr(1)},
+			want: parse.BooleanType{},
+		},
 	}
 
-	if !equalTypes(typ, parse.IntType{}) {
-		t.Fatalf("expected int")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expectExprOK(t, tt.expr, tt.want)
+		})
 	}
 }
 
-func TestBadAddExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	_, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op: "+",
-			Left: parse.BoolExpr{
-				Value: true,
-			},
-			Right: parse.IntExpr{
-				Value: 2,
-			},
+func TestCheckRejectsBadOpExprs(t *testing.T) {
+	tests := []parse.OpExpr{
+		{
+			Op:    "+",
+			Left:  boolExpr(true),
+			Right: intExpr(2),
 		},
-	)
+		{
+			Op:    "+",
+			Left:  intExpr(1),
+			Right: boolExpr(true),
+		},
+		{
+			Op:    "<",
+			Left:  boolExpr(true),
+			Right: intExpr(1),
+		},
+		{
+			Op:    "<",
+			Left:  intExpr(1),
+			Right: boolExpr(true),
+		},
+		{
+			Op:    "==",
+			Left:  intExpr(1),
+			Right: boolExpr(true),
+		},
+		{
+			Op:    "%",
+			Left:  intExpr(1),
+			Right: intExpr(2),
+		},
+	}
 
-	if err == nil {
-		t.Fatalf("expected error")
+	for _, expr := range tests {
+		t.Run(expr.Op, func(t *testing.T) {
+			expectExprError(t, expr)
+		})
 	}
 }
 
@@ -189,21 +260,15 @@ func TestCheckFunctionDefinition(t *testing.T) {
 }
 
 func TestCheckRejectsFunctionReturnMismatch(t *testing.T) {
-	prog := &parse.Program{
+	expectCheckError(t, &parse.Program{
 		FuncDefs: []*parse.FuncDef{
 			{
 				Name:       "bad",
 				ReturnType: parse.BooleanType{},
-				Body: parse.IntExpr{
-					Value: 1,
-				},
+				Body:       intExpr(1),
 			},
 		},
-	}
-
-	if err := Check(prog); err == nil {
-		t.Fatalf("expected error")
-	}
+	})
 }
 
 func TestCheckLambdaAndCallHOF(t *testing.T) {
@@ -457,15 +522,9 @@ func TestCheckConstructorExpr(t *testing.T) {
 }
 
 func TestCheckRejectsUnknownConstructor(t *testing.T) {
-	prog := &parse.Program{
-		Expr: parse.ConsExpr{
-			Name: "bad",
-		},
-	}
-
-	if err := Check(prog); err == nil {
-		t.Fatalf("expected error")
-	}
+	expectCheckError(t, &parse.Program{
+		Expr: parse.ConsExpr{Name: "bad"},
+	})
 }
 
 func TestCheckRejectsConstructorArgCountMismatch(t *testing.T) {
@@ -572,48 +631,6 @@ func TestUnifyFuncType(t *testing.T) {
 
 	if err := unify(a, b, Subst{}); err != nil {
 		t.Fatalf("unexpected error")
-	}
-}
-
-func TestLessThanExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	typ, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op:    "<",
-			Left:  parse.IntExpr{Value: 1},
-			Right: parse.IntExpr{Value: 2},
-		},
-	)
-
-	if err != nil {
-		t.Fatalf("unexpected error")
-	}
-
-	if !equalTypes(typ, parse.BooleanType{}) {
-		t.Fatalf("expected boolean")
-	}
-}
-
-func TestEqualEqualExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	typ, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op:    "==",
-			Left:  parse.IntExpr{Value: 1},
-			Right: parse.IntExpr{Value: 1},
-		},
-	)
-
-	if err != nil {
-		t.Fatalf("unexpected error")
-	}
-
-	if !equalTypes(typ, parse.BooleanType{}) {
-		t.Fatalf("expected boolean")
 	}
 }
 
@@ -854,133 +871,24 @@ func TestCheckRejectsUnknownAlgTypeInExhaustiveCheck(t *testing.T) {
 }
 
 func TestCheckRejectsUnboundVariable(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	_, err := newChecker().checkExpr(
-		env,
-		parse.VarExpr{Name: "missing"},
-	)
-
-	if err == nil {
-		t.Fatalf("expected error")
-	}
+	expectExprError(t, varExpr("missing"))
 }
 
 func TestCheckPrintlnExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	typ, err := newChecker().checkExpr(
-		env,
+	expectExprOK(
+		t,
 		parse.PrintlnExpr{
-			Expr: parse.IntExpr{Value: 1},
+			Expr: intExpr(1),
 		},
+		parse.UnitType{},
 	)
-
-	if err != nil {
-		t.Fatalf("unexpected error")
-	}
-
-	if !equalTypes(typ, parse.UnitType{}) {
-		t.Fatalf("expected unit")
-	}
 }
 
 func TestCheckRejectsBadPrintlnExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	_, err := newChecker().checkExpr(
-		env,
+	expectExprError(
+		t,
 		parse.PrintlnExpr{
-			Expr: parse.VarExpr{Name: "missing"},
+			Expr: varExpr("missing"),
 		},
 	)
-
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
-func TestCheckRejectsBadLessThanExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	_, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op:    "<",
-			Left:  parse.BoolExpr{Value: true},
-			Right: parse.IntExpr{Value: 1},
-		},
-	)
-
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
-func TestCheckRejectsUnknownOperator(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	_, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op:    "%",
-			Left:  parse.IntExpr{Value: 1},
-			Right: parse.IntExpr{Value: 2},
-		},
-	)
-
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
-func TestCheckRejectsBadAddRightExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	_, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op:    "+",
-			Left:  parse.IntExpr{Value: 1},
-			Right: parse.BoolExpr{Value: true},
-		},
-	)
-
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
-func TestCheckRejectsBadLessThanRightExpr(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	_, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op:    "<",
-			Left:  parse.IntExpr{Value: 1},
-			Right: parse.BoolExpr{Value: true},
-		},
-	)
-
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
-func TestCheckRejectsEqualEqualTypeMismatch(t *testing.T) {
-	env := NewTypeEnv(nil)
-
-	_, err := newChecker().checkExpr(
-		env,
-		parse.OpExpr{
-			Op:    "==",
-			Left:  parse.IntExpr{Value: 1},
-			Right: parse.BoolExpr{Value: true},
-		},
-	)
-
-	if err == nil {
-		t.Fatalf("expected error")
-	}
 }
