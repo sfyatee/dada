@@ -11,3 +11,7 @@ func TestCheckerExists(t *testing.T) {
 		t.Fatalf("expected checker")
 	}
 }
+
+func TestDuplicateFunctionFails(t *testing.T) {
+	_ = t
+}
