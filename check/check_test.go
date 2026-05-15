@@ -773,3 +773,214 @@ func TestCheckVarPatternIsExhaustive(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCheckRejectsConstructorPatternTypeMismatch(t *testing.T) {
+	prog := &parse.Program{
+		AlgDefs: []*parse.AlgDef{
+			{
+				Name: "Box",
+				ConsDefs: []*parse.ConsDef{
+					{
+						Name: "box",
+						Args: []parse.Type{
+							parse.IntType{},
+						},
+					},
+				},
+			},
+		},
+		Expr: parse.MatchExpr{
+			Expr: parse.BoolExpr{
+				Value: true,
+			},
+			Cases: []*parse.Case{
+				{
+					Pattern: parse.ConsPattern{
+						Name: "box",
+						Patterns: []parse.Pattern{
+							parse.VarPattern{Name: "x"},
+						},
+					},
+					Expr: parse.IntExpr{
+						Value: 0,
+					},
+				},
+			},
+		},
+	}
+
+	if err := Check(prog); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckRejectsNonExhaustivePrimitiveMatch(t *testing.T) {
+	prog := &parse.Program{
+		Expr: parse.MatchExpr{
+			Expr: parse.IntExpr{
+				Value: 1,
+			},
+			Cases: []*parse.Case{
+				{
+					Pattern: parse.ConsPattern{
+						Name: "bad",
+					},
+					Expr: parse.IntExpr{
+						Value: 0,
+					},
+				},
+			},
+		},
+	}
+
+	if err := Check(prog); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckRejectsUnknownAlgTypeInExhaustiveCheck(t *testing.T) {
+	c := newChecker()
+
+	err := c.checkExhaustive(
+		parse.AlgType{
+			Name: "Missing",
+		},
+		[]*parse.Case{},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckRejectsUnboundVariable(t *testing.T) {
+	env := NewTypeEnv(nil)
+
+	_, err := newChecker().checkExpr(
+		env,
+		parse.VarExpr{Name: "missing"},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckPrintlnExpr(t *testing.T) {
+	env := NewTypeEnv(nil)
+
+	typ, err := newChecker().checkExpr(
+		env,
+		parse.PrintlnExpr{
+			Expr: parse.IntExpr{Value: 1},
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error")
+	}
+
+	if !equalTypes(typ, parse.UnitType{}) {
+		t.Fatalf("expected unit")
+	}
+}
+
+func TestCheckRejectsBadPrintlnExpr(t *testing.T) {
+	env := NewTypeEnv(nil)
+
+	_, err := newChecker().checkExpr(
+		env,
+		parse.PrintlnExpr{
+			Expr: parse.VarExpr{Name: "missing"},
+		},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckRejectsBadLessThanExpr(t *testing.T) {
+	env := NewTypeEnv(nil)
+
+	_, err := newChecker().checkExpr(
+		env,
+		parse.OpExpr{
+			Op:    "<",
+			Left:  parse.BoolExpr{Value: true},
+			Right: parse.IntExpr{Value: 1},
+		},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckRejectsUnknownOperator(t *testing.T) {
+	env := NewTypeEnv(nil)
+
+	_, err := newChecker().checkExpr(
+		env,
+		parse.OpExpr{
+			Op:    "%",
+			Left:  parse.IntExpr{Value: 1},
+			Right: parse.IntExpr{Value: 2},
+		},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckRejectsBadAddRightExpr(t *testing.T) {
+	env := NewTypeEnv(nil)
+
+	_, err := newChecker().checkExpr(
+		env,
+		parse.OpExpr{
+			Op:    "+",
+			Left:  parse.IntExpr{Value: 1},
+			Right: parse.BoolExpr{Value: true},
+		},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckRejectsBadLessThanRightExpr(t *testing.T) {
+	env := NewTypeEnv(nil)
+
+	_, err := newChecker().checkExpr(
+		env,
+		parse.OpExpr{
+			Op:    "<",
+			Left:  parse.IntExpr{Value: 1},
+			Right: parse.BoolExpr{Value: true},
+		},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestCheckRejectsEqualEqualTypeMismatch(t *testing.T) {
+	env := NewTypeEnv(nil)
+
+	_, err := newChecker().checkExpr(
+		env,
+		parse.OpExpr{
+			Op:    "==",
+			Left:  parse.IntExpr{Value: 1},
+			Right: parse.BoolExpr{Value: true},
+		},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
