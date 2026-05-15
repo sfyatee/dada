@@ -6,6 +6,40 @@ import (
 	"dada/parse"
 )
 
+func listAlgDef() *parse.AlgDef {
+	return &parse.AlgDef{
+		Name:     "List",
+		TypeVars: []string{"A"},
+		ConsDefs: []*parse.ConsDef{
+			{
+				Name: "lcons",
+				Args: []parse.Type{
+					parse.TypeVar{Name: "A"},
+					parse.AlgType{
+						Name: "List",
+						Args: []parse.Type{
+							parse.TypeVar{Name: "A"},
+						},
+					},
+				},
+			},
+			{
+				Name: "lnil",
+			},
+		},
+	}
+}
+
+func intListExpr() parse.Expr {
+	return parse.ConsExpr{
+		Name: "lcons",
+		Args: []parse.Expr{
+			parse.IntExpr{Value: 1},
+			parse.ConsExpr{Name: "lnil"},
+		},
+	}
+}
+
 func TestCheckerExists(t *testing.T) {
 	c := newChecker()
 
@@ -647,5 +681,36 @@ func TestEqualTypes(t *testing.T) {
 				t.Fatalf("expected types to be equal")
 			}
 		})
+	}
+}
+
+func TestCheckMatchExpr(t *testing.T) {
+	prog := &parse.Program{
+		AlgDefs: []*parse.AlgDef{
+			listAlgDef(),
+		},
+		Expr: parse.MatchExpr{
+			Expr: intListExpr(),
+			Cases: []*parse.Case{
+				{
+					Pattern: parse.ConsPattern{
+						Name: "lcons",
+						Patterns: []parse.Pattern{
+							parse.VarPattern{Name: "head"},
+							parse.VarPattern{Name: "tail"},
+						},
+					},
+					Expr: parse.VarExpr{Name: "head"},
+				},
+				{
+					Pattern: parse.ConsPattern{Name: "lnil"},
+					Expr:    parse.IntExpr{Value: 0},
+				},
+			},
+		},
+	}
+
+	if err := Check(prog); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
