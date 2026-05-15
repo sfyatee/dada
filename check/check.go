@@ -757,6 +757,10 @@ func (c *Checker) checkMatchExpr(env *TypeEnv, expr parse.MatchExpr) (parse.Type
 		return nil, err
 	}
 
+	if err := c.checkExhaustive(targetType, expr.Cases); err != nil {
+		return nil, err
+	}
+
 	var resultType parse.Type
 
 	for i, matchCase := range expr.Cases {
@@ -821,4 +825,39 @@ func (c *Checker) checkPattern(env *TypeEnv, pattern parse.Pattern, expected par
 	}
 
 	return Error("unsupported pattern")
+}
+
+func (c *Checker) checkExhaustive(targetType parse.Type, cases []*parse.Case) error {
+	for _, matchCase := range cases {
+		switch matchCase.Pattern.(type) {
+		case parse.WildcardPattern, parse.VarPattern:
+			return nil
+		}
+	}
+
+	algType, ok := targetType.(parse.AlgType)
+	if !ok {
+		return Error("non-exhaustive match")
+	}
+
+	alg, ok := c.algs[algType.Name]
+	if !ok {
+		return Error("unknown algebraic type")
+	}
+
+	seen := map[string]bool{}
+
+	for _, matchCase := range cases {
+		if cons, ok := matchCase.Pattern.(parse.ConsPattern); ok {
+			seen[cons.Name] = true
+		}
+	}
+
+	for _, cons := range alg.ConsDefs {
+		if !seen[cons.Name] {
+			return Error("non-exhaustive match")
+		}
+	}
+
+	return nil
 }
