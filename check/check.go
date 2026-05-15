@@ -115,3 +115,77 @@ func (c *Checker) registerFuncDef(fn *parse.FuncDef) error {
 
 	return nil
 }
+
+func equalTypes(a, b parse.Type) bool {
+	switch ta := a.(type) {
+
+	case parse.IntType:
+		_, ok := b.(parse.IntType)
+		return ok
+
+	case parse.BooleanType:
+		_, ok := b.(parse.BooleanType)
+		return ok
+
+	case parse.UnitType:
+		_, ok := b.(parse.UnitType)
+		return ok
+
+	case parse.TypeVar:
+		tb, ok := b.(parse.TypeVar)
+		return ok && ta.Name == tb.Name
+
+	case parse.AlgType:
+		tb, ok := b.(parse.AlgType)
+
+		if !ok {
+			return false
+		}
+
+		if ta.Name != tb.Name {
+			return false
+		}
+
+		if len(ta.Args) != len(tb.Args) {
+			return false
+		}
+
+		for i := range ta.Args {
+			if !equalTypes(
+				ta.Args[i],
+				tb.Args[i],
+			) {
+				return false
+			}
+		}
+
+		return true
+
+	case parse.FuncType:
+		tb, ok := b.(parse.FuncType)
+
+		if !ok {
+			return false
+		}
+
+		if len(ta.Params) != len(tb.Params) {
+			return false
+		}
+
+		for i := range ta.Params {
+			if !equalTypes(
+				ta.Params[i],
+				tb.Params[i],
+			) {
+				return false
+			}
+		}
+
+		return equalTypes(
+			ta.Return,
+			tb.Return,
+		)
+	}
+
+	return false
+}

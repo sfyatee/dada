@@ -2,6 +2,8 @@ package check
 
 import (
 	"testing"
+
+	"dada/parse"
 )
 
 func TestCheckerExists(t *testing.T) {
@@ -14,4 +16,15 @@ func TestCheckerExists(t *testing.T) {
 
 func TestDuplicateFunctionFails(t *testing.T) {
 	_ = t
+}
+
+func TestEqualTypes(t *testing.T) {
+	a := equalTypes(
+		parse.IntType{},
+		parse.IntType{},
+	)
+
+	if !a {
+		t.Fatalf("expected equal")
+	}
 }
