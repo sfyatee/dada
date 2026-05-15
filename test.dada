@@ -1,0 +1,20 @@
+(algdef List (A)
+        (lcons A (alg List A))
+        (lnil))
+
+(def map (A B) (((alg List A) list)
+                ((=> (A) B) f))
+               (alg List B)
+  (match list
+    (case (cons lcons head tail)
+          (cons lcons (callhof f head) (call map tail f)))
+    (case (cons lnil) (cons lnil))))
+
+(def length (A) (((alg List A) list)) Int
+  (match list
+    (case (cons lcons _ tail)
+          (+ 1 (call length tail)))
+    (case (cons lnil) 0)))
+
+(call map (cons lcons 1 (cons lnil))
+          (=> ((Int x)) (+ x 1)))
