@@ -574,7 +574,9 @@ func (c *Checker) checkFuncDef(fn *parse.FuncDef) error {
 		return err
 	}
 
-	if !equalTypes(bodyType, fn.ReturnType) {
+	subst := Subst{}
+
+	if err := unify(fn.ReturnType, bodyType, subst); err != nil {
 		return Error("function return type mismatch")
 	}
 
@@ -775,10 +777,16 @@ func (c *Checker) checkMatchExpr(env *TypeEnv, expr parse.MatchExpr) (parse.Type
 			return nil, err
 		}
 
+		subst := Subst{}
+
 		if i == 0 {
 			resultType = caseType
-		} else if !equalTypes(resultType, caseType) {
-			return nil, Error("match case type mismatch")
+		} else {
+			if err := unify(resultType, caseType, subst); err != nil {
+				return nil, Error("match case type mismatch")
+			}
+
+			resultType = applySubst(resultType, subst)
 		}
 	}
 
