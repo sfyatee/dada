@@ -189,3 +189,271 @@ func equalTypes(a, b parse.Type) bool {
 
 	return false
 }
+
+type Subst map[string]parse.Type
+
+var freshCounter int
+
+func freshTypeVar() parse.TypeVar {
+	name := "__t"
+
+	name += string(rune('0' + freshCounter))
+
+	freshCounter++
+
+	return parse.TypeVar{
+		Name: name,
+	}
+}
+
+func applySubst(t parse.Type, subst Subst) parse.Type {
+	switch tt := t.(type) {
+
+	case parse.TypeVar:
+		if r, ok := subst[tt.Name]; ok {
+			return r
+		}
+
+		return tt
+
+	case parse.FuncType:
+		var params []parse.Type
+
+		for _, p := range tt.Params {
+			params = append(
+				params,
+				applySubst(p, subst),
+			)
+		}
+
+		return parse.FuncType{
+			Params: params,
+			Return: applySubst(
+				tt.Return,
+				subst,
+			),
+		}
+
+	case parse.AlgType:
+		var args []parse.Type
+
+		for _, a := range tt.Args {
+			args = append(
+				args,
+				applySubst(a, subst),
+			)
+		}
+
+		return parse.AlgType{
+			Name: tt.Name,
+			Args: args,
+		}
+	}
+
+	return t
+}
+
+func instantiateFuncSig(sig *FuncSig) *FuncSig {
+	subst := Subst{}
+
+	for _, tv := range sig.TypeVars {
+		subst[tv] = freshTypeVar()
+	}
+
+	var params []parse.Type
+
+	for _, p := range sig.Params {
+		params = append(
+			params,
+			applySubst(p, subst),
+		)
+	}
+
+	return &FuncSig{
+		Params: params,
+		Return: applySubst(
+			sig.Return,
+			subst,
+		),
+	}
+}
+
+func unify(a parse.Type, b parse.Type, subst Subst) error {
+	a = applySubst(a, subst)
+	b = applySubst(b, subst)
+
+	switch ta := a.(type) {
+
+	case parse.TypeVar:
+		subst[ta.Name] = b
+		return nil
+	}
+
+	switch tb := b.(type) {
+
+	case parse.TypeVar:
+		subst[tb.Name] = a
+		return nil
+	}
+
+	switch ta := a.(type) {
+
+	case parse.IntType:
+		if _, ok := b.(parse.IntType); !ok {
+			return Error("cannot unify")
+		}
+
+	case parse.BooleanType:
+		if _, ok := b.(parse.BooleanType); !ok {
+			return Error("cannot unify")
+		}
+
+	case parse.UnitType:
+		if _, ok := b.(parse.UnitType); !ok {
+			return Error("cannot unify")
+		}
+
+	case parse.FuncType:
+		tb, ok := b.(parse.FuncType)
+
+		if !ok {
+			return Error("cannot unify")
+		}
+
+		if len(ta.Params) != len(tb.Params) {
+			return Error("cannot unify")
+		}
+
+		for i := range ta.Params {
+			if err := unify(
+				ta.Params[i],
+				tb.Params[i],
+				subst,
+			); err != nil {
+				return err
+			}
+		}
+
+		return unify(
+			ta.Return,
+			tb.Return,
+			subst,
+		)
+
+	case parse.AlgType:
+		tb, ok := b.(parse.AlgType)
+
+		if !ok {
+			return Error("cannot unify")
+		}
+
+		if ta.Name != tb.Name {
+			return Error("cannot unify")
+		}
+
+		if len(ta.Args) != len(tb.Args) {
+			return Error("cannot unify")
+		}
+
+		for i := range ta.Args {
+			if err := unify(
+				ta.Args[i],
+				tb.Args[i],
+				subst,
+			); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	return nil
+}
+
+func (c *Checker) checkExpr(env *TypeEnv, expr parse.Expr) (parse.Type, error) {
+	switch e := expr.(type) {
+
+	case parse.IntExpr:
+		return parse.IntType{}, nil
+
+	case parse.BoolExpr:
+		return parse.BooleanType{}, nil
+
+	case parse.UnitExpr:
+		return parse.UnitType{}, nil
+
+	case parse.VarExpr:
+		t, ok := env.Lookup(e.Name)
+
+		if !ok {
+			return nil, Error("unbound variable")
+		}
+
+		return t, nil
+
+	case parse.PrintlnExpr:
+		_, err := c.checkExpr(env, e.Expr)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return parse.UnitType{}, nil
+
+	case parse.OpExpr:
+		return c.checkOpExpr(env, e)
+	}
+
+	return nil, Error("unsupported expression")
+}
+
+func (c *Checker) checkOpExpr(env *TypeEnv, expr parse.OpExpr) (parse.Type, error) {
+	left, err := c.checkExpr(env, expr.Left)
+
+	if err != nil {
+		return nil, err
+	}
+
+	right, err := c.checkExpr(env, expr.Right)
+
+	if err != nil {
+		return nil, err
+	}
+
+	switch expr.Op {
+
+	case "+", "-", "*", "/":
+		if !equalTypes(left, parse.IntType{}) {
+			return nil, Error("expected Int")
+		}
+
+		if !equalTypes(right, parse.IntType{}) {
+			return nil, Error("expected Int")
+		}
+
+		return parse.IntType{}, nil
+
+	case "<":
+		if !equalTypes(left, parse.IntType{}) {
+			return nil, Error("expected Int")
+		}
+
+		if !equalTypes(right, parse.IntType{}) {
+			return nil, Error("expected Int")
+		}
+
+		return parse.BooleanType{}, nil
+
+	case "==":
+		subst := Subst{}
+
+		if err := unify(left, right, subst); err != nil {
+			return nil, err
+		}
+
+		return parse.BooleanType{}, nil
+	}
+
+	return nil, Error("unknown operator")
+}
